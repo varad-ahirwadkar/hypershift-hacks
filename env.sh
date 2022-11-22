@@ -1,0 +1,13 @@
+export MANAGEMENT_CLUSTER=hyp-ci
+export IBMCLOUD_API_KEY=
+export REGION=tok
+export ZONE=tok04
+export VPC_REGION=jp-tok
+export RESOURCE_GROUP=ibm-hypershift-dev
+export BASEDOMAIN=hypershift-ppc64le.com
+export PULL_SECRET=
+export RELEASE_IMAGE=
+export PROC_TYPE=dedicated
+export PROCESSORS=1
+export DUMP_DIR=/tmp
+export PATH=$PATH:/usr/local/go/bin
