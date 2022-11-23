@@ -169,10 +169,18 @@ def runE2e():
 
     subprocess.run(["echo", "executing", " ".join(createClusterCmd)])
 
+    createClusterFailed = False
     # Creating guest cluster ...
-    out = subprocess.run(createClusterCmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["echo", out.stdout.decode()])
-    if out.check_returncode() is not None or "Failed to create cluster" in out.stdout.decode():
+    try:
+        out = subprocess.run(createClusterCmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["echo", out.stderr.decode()])
+        if "Failed to create cluster" in out.stderr.decode():
+            createClusterFailed = True
+    except Exception as ex:
+        subprocess.run(["echo", "caught", str(ex), "executing bin/hypershift create cluster powervs command"])
+        createClusterFailed = True
+
+    if createClusterFailed:
         destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
         return
 
