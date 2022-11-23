@@ -76,6 +76,29 @@ def setupEnv():
 
     out = subprocess.run(["make"])
 
+def destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain):
+    destroyClusterCmd = ["bin/hypershift", "destroy", "cluster", "powervs", 
+    "--name", name, 
+    "--infra-id", infraID, 
+    "--vpc-region={}".format(vpcRegion), 
+    "--region={}".format(region),
+    "--zone={}".format(zone),
+    "--resource-group={}".format(resourceGroup),
+    "--base-domain={}".format(baseDomain)
+    ]
+
+    retry = 0
+    while retry < 10:
+        try:
+            subprocess.run(["echo", "executing", " ".join(destroyClusterCmd)])
+            out = subprocess.run(destroyClusterCmd)
+            if out.check_returncode() is None:
+                break
+        except Exception as ex:
+            subprocess.run(["echo", "caught", str(ex), "executing", " ".join(destroyClusterCmd)])
+
+        retry += 1
+
 def runE2e():
 
     # Installing hypershift operator ...
@@ -145,21 +168,17 @@ def runE2e():
         createClusterCmd.append("--ssh-key={}".format(sshkey))
 
     subprocess.run(["echo", "executing", " ".join(createClusterCmd)])
+
     # Creating guest cluster ...
-    subprocess.run(createClusterCmd)
+    out = subprocess.run(createClusterCmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(["echo", out.stdout.decode()])
+    if out.check_returncode() is not None or "Failed to create cluster" in out.stdout.decode():
+        destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
+        return
 
-    retry = 0
-    while retry < 2:
-        try:
-            hostedClusterAvailableCmd = ["oc", "wait", "--timeout=10m", "--for=condition=Available", "--namespace=clusters", "hostedcluster/{}".format(name)]
-            subprocess.run(["echo", "executing", " ".join(hostedClusterAvailableCmd)])
-            out = subprocess.run(hostedClusterAvailableCmd)
-            if out.check_returncode() is None:
-                break
-        except Exception:
-            pass
-        retry += 1
-
+    hostedClusterAvailableCmd = ["oc", "wait", "--timeout=10m", "--for=condition=Available", "--namespace=clusters", "hostedcluster/{}".format(name)]
+    subprocess.run(["echo", "executing", " ".join(hostedClusterAvailableCmd)])
+    subprocess.run(hostedClusterAvailableCmd)
 
     subprocess.run(["sleep", "15"])
 
@@ -201,28 +220,7 @@ def runE2e():
         subprocess.run(["echo", "caught", str(ex), "executing", " ".join(dumpClusterCmd)])
 
     # Destroying guest cluster ....
-
-    destroyClusterCmd = ["bin/hypershift", "destroy", "cluster", "powervs", 
-    "--name", name, 
-    "--infra-id", infraID, 
-    "--vpc-region={}".format(vpcRegion), 
-    "--region={}".format(region),
-    "--zone={}".format(zone),
-    "--resource-group={}".format(resourceGroup),
-    "--base-domain={}".format(baseDomain)
-    ]
-
-    retry = 0
-    while retry < 10:
-        try:
-            subprocess.run(["echo", "executing", " ".join(destroyClusterCmd)])
-            out = subprocess.run(destroyClusterCmd)
-            if out.check_returncode() is None:
-                break
-        except Exception as ex:
-            subprocess.run(["echo", "caught", str(ex), "executing", " ".join(destroyClusterCmd)])
-
-        retry += 1
+    destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
 
 def cleanupEnv():
     try:
@@ -249,7 +247,6 @@ def cleanupEnv():
         subprocess.run(["echo", "caught exception while cleaning hypershift operator image in mgmt cluster's data nodes", str(ex)])
 
     os.chdir("../")
-    subprocess.run(["pwd"])
 
     shutil.rmtree("hypershift-main")
     os.remove("hypershift.zip")
