@@ -233,6 +233,7 @@ def runE2e():
 def cleanupEnv():
     try:
         subprocess.run(["oc", "delete", "namespace", "hypershift"])
+        subprocess.run(["oc", "delete", "namespace", "clusters"])
     except Exception as ex:
         subprocess.run(["echo", "caught exception while deleting hypershift namespace", str(ex)])
 
