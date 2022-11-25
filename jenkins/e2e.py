@@ -25,6 +25,9 @@ procType = os.getenv("PROC_TYPE")
 processors = os.getenv("PROCESSORS")
 dumpDir = os.getenv("DUMP_DIR")
 
+guestKubeconfigPath = "/tmp/ci-guest-kubeconfig"
+mgmtClusterKubeconfigPath = "/tmp/ci-mgmt-kubeconfig"
+
 def setupEnv():
     if apikey == "":
         raise Exception("IBMCLOUD_API_KEY is not set")
@@ -32,41 +35,13 @@ def setupEnv():
     api = "--apikey={}".format(apikey)
     subprocess.run(['ibmcloud', 'login', api,'-r', vpcRegion])
 
-    output = subprocess.check_output(['ibmcloud', 'oc', 'cluster', 'get', '-c', mgmtCluster, '--output', 'json'])
-    clusterInfo = json.loads(output)
-    masterURL = clusterInfo["masterURL"]
+    f = os.open(mgmtClusterKubeconfigPath, os.O_RDWR|os.O_CREAT)
 
-    issuerURL = "{}/.well-known/oauth-authorization-server".format(masterURL)
-    with urlopen(issuerURL) as response:
-        body = response.read()
+    subprocess.run(['ibmcloud', 'oc', 'cluster', 'config', '-c', mgmtCluster, '--admin', '--output', 'yaml'], stdout=f)
 
-    issuerURL = json.loads(body)['issuer']
+    os.close(f)
 
-    tokenURL = "{}/oauth/authorize?client_id=openshift-challenging-client&response_type=token".format(issuerURL)
-
-
-    r = Request(tokenURL)
-    r.add_header("X-CSRF-Token", "a")
-    api = '%s:%s' % ("apikey", apikey)
-    apibytes = api.encode("ascii")
-    apiencoded = base64.b64encode(apibytes)
-    r.add_header("Authorization", "Basic %s" % apiencoded.decode('utf-8'))
-    res = urlopen(r)
-
-    parsed = urlparse(res.url)
-    frag = parsed.fragment
-    access_token = ""
-    for param in frag.split("&"):
-        if "access_token" in param:
-            paramSplit = param.split("=")
-            access_token = paramSplit[1]
-
-    try:
-        shutil.rmtree("{}/.kube".format(Path.home()))
-    except:
-        pass
-
-    subprocess.run(["oc", "login", "--token", access_token,"--server", masterURL])
+    os.environ["KUBECONFIG"] = mgmtClusterKubeconfigPath
 
     subprocess.run(["curl", "https://codeload.github.com/openshift/hypershift/zip/refs/heads/main", "-o", "hypershift.zip"])
 
@@ -74,7 +49,7 @@ def setupEnv():
 
     os.chdir("hypershift-main")
 
-    out = subprocess.run(["make"])
+    out = subprocess.run(["make", "hypershift"])
 
 def destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain):
     destroyClusterCmd = ["bin/hypershift", "destroy", "cluster", "powervs", 
@@ -88,7 +63,7 @@ def destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDo
     ]
 
     retry = 0
-    while retry < 10:
+    while retry < 5:
         try:
             subprocess.run(["echo", "executing", " ".join(destroyClusterCmd)])
             out = subprocess.run(destroyClusterCmd)
@@ -170,14 +145,14 @@ def runE2e():
     subprocess.run(["echo", "executing", " ".join(createClusterCmd)])
 
     createClusterFailed = False
-    # Creating guest cluster ...
+    # Create guest cluster ...
     try:
         out = subprocess.run(createClusterCmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(["echo", out.stderr.decode()])
         if "Failed to create cluster" in out.stderr.decode():
             createClusterFailed = True
     except Exception as ex:
-        subprocess.run(["echo", "caught", str(ex), "executing bin/hypershift create cluster powervs command"])
+        subprocess.run(["echo", "caught", str(ex), "while executing 'bin/hypershift create cluster powervs' command"])
         createClusterFailed = True
 
     if createClusterFailed:
@@ -190,14 +165,13 @@ def runE2e():
 
     subprocess.run(["sleep", "15"])
 
-    kubeconfigPath = "{}/{}-kubeconfig".format(os.getcwd(), name)
-    f = os.open(kubeconfigPath, os.O_RDWR|os.O_CREAT)
+    f = os.open(guestKubeconfigPath, os.O_RDWR|os.O_CREAT)
 
     subprocess.run(["bin/hypershift", "create", "kubeconfig", "--name={}".format(name)],stdout=f)
 
     os.close(f)
 
-    os.environ["KUBECONFIG"] = kubeconfigPath
+    os.environ["KUBECONFIG"] = guestKubeconfigPath
    
     waitConditionCmd = ["oc", "wait", "--timeout=1s", "clusterversion/version", "--for=condition=Available=True"]
     retry = 0
@@ -216,10 +190,9 @@ def runE2e():
         time.sleep(300)
         retry += 5
 
-    os.unsetenv("KUBECONFIG")
+    os.environ["KUBECONFIG"] = mgmtClusterKubeconfigPath
 
-    os.remove(kubeconfigPath)
-
+    # Dump guest cluster ...
     dumpClusterCmd = ["bin/hypershift", "dump", "cluster", "--dump-guest-cluster", "--artifact-dir={}/{}-dump".format(dumpDir, name), "--name", name]
     try:
         subprocess.run(["echo", "executing", " ".join(dumpClusterCmd)])
@@ -227,16 +200,18 @@ def runE2e():
     except Exception as ex:
         subprocess.run(["echo", "caught", str(ex), "executing", " ".join(dumpClusterCmd)])
 
-    # Destroying guest cluster ....
+    # Destroy guest cluster ...
     destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
 
 def cleanupEnv():
+    # Delete namespaces
     try:
         subprocess.run(["oc", "delete", "namespace", "hypershift"])
         subprocess.run(["oc", "delete", "namespace", "clusters"])
     except Exception as ex:
         subprocess.run(["echo", "caught exception while deleting hypershift namespace", str(ex)])
 
+    # Delete CRDs
     def unapplyCRD(dir):
         for filename in os.listdir(dir):
             subprocess.run(["oc", "delete", "-f", "{}/{}".format(dir, filename)])
@@ -247,6 +222,7 @@ def cleanupEnv():
     except Exception as ex:
         subprocess.run(["echo", "caught exception while deleting CRDs", str(ex)])
 
+    # Delete hypershift operator image from workers
     try:
         nodesOut = subprocess.check_output(["oc", "get", "nodes", "-o", "json"])
         nodes = json.loads(nodesOut)
@@ -254,11 +230,6 @@ def cleanupEnv():
             subprocess.run(["oc", "debug", "node/{}".format(node["metadata"]["name"]), "--", "chroot", "/host", "crictl", "rmi", "-q"])
     except Exception as ex:
         subprocess.run(["echo", "caught exception while cleaning hypershift operator image in mgmt cluster's data nodes", str(ex)])
-
-    os.chdir("../")
-
-    shutil.rmtree("hypershift-main")
-    os.remove("hypershift.zip")
 
 if __name__ == "__main__":
     try:
