@@ -157,7 +157,7 @@ def runE2e():
 
     if createClusterFailed:
         destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
-        return
+        raise Exception("cluster creation failed, see more on 'bin/hypershift create cluster powervs' command output from log")
 
     hostedClusterAvailableCmd = ["oc", "wait", "--timeout=10m", "--for=condition=Available", "--namespace=clusters", "hostedcluster/{}".format(name)]
     subprocess.run(["echo", "executing", " ".join(hostedClusterAvailableCmd)])
@@ -173,6 +173,7 @@ def runE2e():
 
     os.environ["KUBECONFIG"] = guestKubeconfigPath
    
+    clusterOperatorsReady = False
     waitConditionCmd = ["oc", "wait", "--timeout=1s", "clusterversion/version", "--for=condition=Available=True"]
     retry = 0
     while retry < 120:
@@ -184,6 +185,7 @@ def runE2e():
                 subprocess.run(["oc", "get", "clusterversion/version"])
             else:
                 subprocess.run(["echo", "Clusteroperators ready"])
+                clusterOperatorsReady = True
                 break
         except Exception as ex:
             subprocess.run(["echo", "caught", str(ex), "executing", " ".join(waitConditionCmd)])
@@ -202,6 +204,9 @@ def runE2e():
 
     # Destroy guest cluster ...
     destroyCluster(name, infraID, vpcRegion, region, zone, resourceGroup, baseDomain)
+
+    if clusterOperatorsReady == False:
+        raise Exception("cluster operators does not become available, see more on hosted cluster's dump.")
 
 def cleanupEnv():
     # Delete namespaces
@@ -236,6 +241,6 @@ if __name__ == "__main__":
         setupEnv()
         runE2e()
     except Exception as ex:
-        print("caught", ex)
+        raise
     finally:
         cleanupEnv()
