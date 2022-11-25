@@ -4,6 +4,26 @@
 ### Prerequisite:
 - A VM with python3 installed.
 
+## Authorization:
+
+API Key used should have below services with respective roles for hypershift cluster to get created in IBM Cloud.
+
+| Service                                                      | Roles                                                   |
+|--------------------------------------------------------------|---------------------------------------------------------|
+| Workspace for Power Systems Virtual Server - power-iaas      | Manager, Administrator                                  |
+| VPC Infrastructure Services - is                             | Manager, Administrator                                  |
+| Internet Services - internet-svcs                            | Manager, Administrator                                  |
+| Direct Link - directlink                                     | Editor                                                  |
+| IAM Identity Service - iam-identity                          | User API key creator, Service ID creator, Administrator |
+| All account management services                              | Administrator                                           |
+| All resources in account                                     | Manager, Editor                                         |
+
+To run this jenkins job, need another Service access as well to access the management ROKS cluster to create manifests of hypershift test cluster.
+
+| Service                                                      | Roles                   |
+|--------------------------------------------------------------|-------------------------|
+| Kubernetes Service - containers-kubernetes                   | Manager, Administrator  |
+
 ### Steps to run:
 1. Install required packages using install_packages.sh
 
