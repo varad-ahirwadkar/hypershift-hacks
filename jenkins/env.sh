@@ -1,10 +1,10 @@
-export MANAGEMENT_CLUSTER=hyp-ci
+export MANAGEMENT_CLUSTER=rdr-pravin-hypnone
 export IBMCLOUD_API_KEY=
 export REGION=tok
 export ZONE=tok04
 export VPC_REGION=jp-tok
-export RESOURCE_GROUP=ibm-hypershift-dev
-export BASEDOMAIN=hypershift-ppc64le.com
+export RESOURCE_GROUP=ipi-resource-group
+export BASEDOMAIN=ocp-powervs-ppc64le.com
 export PULL_SECRET=
 export RELEASE_IMAGE=
 export PROC_TYPE=dedicated
